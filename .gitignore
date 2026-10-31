@@ -1,0 +1,30 @@
+# Secrets
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.bak
+
+# Virtual environment
+.venv/
+venv/
+
+# Test and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local database and generated data
+meeting_db/
+chroma_db/
+
+# OS and editor
+.DS_Store
+.vscode/
+.idea/
+
+# Logs
+*.log
