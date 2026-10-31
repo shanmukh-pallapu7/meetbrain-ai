@@ -28,8 +28,8 @@ An AI-powered meeting intelligence assistant that converts meeting transcripts i
 
 ## Setup
 ```bash
-git clone <YOUR_GITHUB_REPOSITORY_URL>
-cd metabrain_ai
+git clone https://github.com/shanmukh-pallapu7/meetbrain-ai.git
+cd meetbrain-ai
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
