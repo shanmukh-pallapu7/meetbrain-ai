@@ -187,14 +187,17 @@ pytest -q
 
 ## Screenshots
 
-Place your application screenshots in a `screenshots/` folder in the repository. Then add them to this section:
+### 1. MeetBrain AI Dashboard
+![MeetBrain AI Dashboard](screenshots/01-dashboard.png)
 
-```markdown
-![MeetBrain AI dashboard](screenshots/01-dashboard.png)
-![Generated meeting report](screenshots/02-meeting-report.png)
-![Action items and open questions](screenshots/03-report-actions-and-open-questions.png)
+### 2. Generated Meeting Report
+![Generated Meeting Report](screenshots/02-meeting-report.png)
+
+### 3. Action Items and Open Questions
+![Action Items and Open Questions](screenshots/03-report-actions-and-open-questions.png)
+
+### 4. Meeting Q&A
 ![Meeting Q&A](screenshots/04-meeting-qa.png)
-```
 
 ## Author
 
