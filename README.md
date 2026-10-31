@@ -2,20 +2,6 @@
 
 An AI-powered meeting intelligence assistant that converts meeting transcripts into structured reports and answers questions using Retrieval-Augmented Generation (RAG).
 
-## Application Screenshots
-
-### MeetBrain AI dashboard
-![MeetBrain AI dashboard](screenshots/01-dashboard.png)
-
-### Generated meeting report
-![Generated meeting report](screenshots/02-meeting-report.png)
-
-### Action items and open questions
-![Action items and open questions](screenshots/03-report-actions-and-open-questions.png)
-
-### Meeting-specific RAG question answering
-![Meeting Q&A](screenshots/04-meeting-qa.png)
-
 
 ## Features
 - Generate meeting summaries, key decisions, action items, and open questions.
@@ -75,3 +61,18 @@ Latest test result: 21 passed.
 - OCR support for scanned documents.
 - Cloud deployment and authentication.
 - Expanded retrieval and answer evaluation.
+
+
+## Application Screenshots
+
+### MeetBrain AI dashboard
+![MeetBrain AI dashboard](screenshots/01-dashboard.png)
+
+### Generated meeting report
+![Generated meeting report](screenshots/02-meeting-report.png)
+
+### Action items and open questions
+![Action items and open questions](screenshots/03-report-actions-and-open-questions.png)
+
+### Meeting-specific RAG question answering
+![Meeting Q&A](screenshots/04-meeting-qa.png)
