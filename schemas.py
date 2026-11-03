@@ -15,10 +15,9 @@ class MeetingReport(BaseModel):
     open_questions: list[str] = Field(default_factory=list)
     follow_up_email: str
 
-
-@field_validator("title")
-@classmethod
-def title_must_not_be_blank(cls, value: str) -> str:
-    if not value.strip():
-        raise ValueError("Meeting title must not be blank")
-    return value.strip()
+    @field_validator("title")
+    @classmethod
+    def title_must_not_be_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Meeting title must not be blank")
+        return value.strip()

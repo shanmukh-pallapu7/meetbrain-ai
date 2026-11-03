@@ -1,49 +1,74 @@
+import logging
+
+import logging_config
 from llm_service import get_completion
 from schemas import MeetingReport
 
+logger = logging.getLogger(__name__)
+
 
 def generate_meeting_report(transcript: str) -> MeetingReport:
+    """Generate and validate a structured meeting report using Groq."""
+
+    if not transcript or not transcript.strip():
+        raise ValueError("Meeting transcript cannot be empty")
+
+    logger.info("Meeting report generation started")
+
     prompt = f"""
-You are MeetBrain AI, a meeting intelligence assistant.
+You are an expert meeting intelligence assistant.
 
-Analyze the transcript below and return ONLY a valid JSON object
-matching this structure:
+Analyze the meeting transcript and generate a structured report.
 
-{{
-  "title": "Meeting title",
-  "summary": "Concise summary",
-  "key_decisions": [],
-  "action_items": [
-    {{
-      "task": "Action to perform",
-      "owner": null,
-      "deadline": null
-    }}
-  ],
-  "open_questions": [],
-  "follow_up_email": "Draft email"
-}}
+Requirements:
+1. Give the meeting a short, meaningful title.
+2. Summarize the main discussion points.
+3. Identify important decisions explicitly mentioned.
+4. Extract action items with task, owner, and deadline.
+5. Identify unresolved questions.
+6. Draft a professional follow-up email.
 
 Rules:
-- Never invent facts, owners, or deadlines.
-- Use null for unknown owners and deadlines.
-- Include only decisions supported by the transcript.
-- Identify unresolved decisions, pending choices, and missing information as open questions.
-- If the transcript explicitly says a decision has not been made, add a question about that decision to open_questions.
-- Do not list a resolved decision as an open question.
-- Use double quotes for JSON strings.
-- Do not assume that two related statements have a relationship unless the transcript explicitly establishes it.
-- The follow-up email must contain only facts supported by the transcript.
-- Preserve conditional statements exactly as stated.
-- Do not assign responsibility to an unspecified person.
-- The title must be a concise, meaningful title based on the transcript.
-- The title must never be empty, null, or whitespace-only.
+- Use only information present in the transcript.
+- Do not invent names, deadlines, decisions, or responsibilities.
+- Use null for unknown action item owners or deadlines.
+- If no decisions, action items, or open questions exist,
+  return empty arrays.
+- Return valid JSON only.
+- Do not include Markdown code fences or additional explanations.
 
-Transcript:
+Required JSON structure:
+{{
+    "title": "Meeting title",
+    "summary": "Meeting summary",
+    "key_decisions": [],
+    "action_items": [
+        {{
+            "task": "Action item",
+            "owner": null,
+            "deadline": null
+        }}
+    ],
+    "open_questions": [],
+    "follow_up_email": "Email content"
+}}
+
+Meeting transcript:
 {transcript}
 """
 
-    result = get_completion(prompt)
-    print("LLM raw response:", result)
+    try:
+        response = get_completion(prompt)
 
-    return MeetingReport.model_validate_json(result)
+        if not response:
+            raise ValueError("The LLM returned an empty response")
+
+        report = MeetingReport.model_validate_json(response)
+
+        logger.info("Meeting report generated and validated successfully")
+
+        return report
+
+    except Exception:
+        logger.exception("Meeting report generation failed")
+        raise

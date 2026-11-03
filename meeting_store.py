@@ -1,7 +1,14 @@
+import logging
+
+import logging_config
 import chromadb
 from sentence_transformers import SentenceTransformer
 
+logger = logging.getLogger(__name__)
+
 # Persistent database used by the application.
+logger.info("Initializing ChromaDB persistent client")
+
 client = chromadb.PersistentClient(path="./meeting_db")
 
 collection = client.get_or_create_collection(
@@ -13,8 +20,13 @@ chunk_collection = client.get_or_create_collection(
     name="meeting_chunks",
     metadata={"hnsw:space": "cosine"},
 )
+
 # The embedding model downloads on first use.
+logger.info("Loading sentence transformer embedding model")
+
 embedding_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+
+logger.info("ChromaDB and embedding model initialized successfully")
 
 
 def format_action_items(action_items: list[dict]) -> str:
@@ -51,6 +63,7 @@ def split_meeting_into_chunks(report: dict) -> list[dict]:
 
     for section, content in sections:
         content = content.strip()
+
         if not content:
             continue
 
@@ -73,39 +86,57 @@ def save_meeting_chunks(
 ) -> int:
     """Save a meeting as separately searchable section chunks."""
 
-    chunks = split_meeting_into_chunks(report)
+    try:
+        chunks = split_meeting_into_chunks(report)
 
-    if not chunks:
-        return 0
+        if not chunks:
+            logger.warning(
+                "No searchable chunks generated | Meeting ID: %s",
+                meeting_id,
+            )
+            return 0
 
-    ids = []
-    documents = []
-    embeddings = []
-    metadatas = []
+        ids = []
+        documents = []
+        embeddings = []
+        metadatas = []
 
-    for chunk in chunks:
-        chunk_id = f"{meeting_id}::chunk::{chunk['section']}"
+        for chunk in chunks:
+            chunk_id = f"{meeting_id}::chunk::{chunk['section']}"
 
-        ids.append(chunk_id)
-        documents.append(chunk["text"])
-        embeddings.append(model.encode(chunk["text"]).tolist())
+            ids.append(chunk_id)
+            documents.append(chunk["text"])
+            embeddings.append(model.encode(chunk["text"]).tolist())
 
-        metadatas.append(
-            {
-                "meeting_id": meeting_id,
-                "title": chunk["title"],
-                "section": chunk["section"],
-            }
+            metadatas.append(
+                {
+                    "meeting_id": meeting_id,
+                    "title": chunk["title"],
+                    "section": chunk["section"],
+                }
+            )
+
+        target_collection.upsert(
+            ids=ids,
+            documents=documents,
+            embeddings=embeddings,
+            metadatas=metadatas,
         )
 
-    target_collection.upsert(
-        ids=ids,
-        documents=documents,
-        embeddings=embeddings,
-        metadatas=metadatas,
-    )
+        logger.info(
+            "Meeting chunks saved | Meeting ID: %s | Count: %d",
+            meeting_id,
+            len(chunks),
+        )
 
-    return len(chunks)
+        return len(chunks)
+
+    except Exception:
+        logger.exception(
+            "Failed to save meeting chunks | Meeting ID: %s",
+            meeting_id,
+        )
+        raise
 
 
 def search_meeting_chunks(
@@ -119,104 +150,66 @@ def search_meeting_chunks(
     """Search meeting chunks and optionally filter by cosine distance."""
 
     if not query.strip() or top_k <= 0:
+        logger.warning("Invalid chunk search request")
         return []
 
-    filters = {"meeting_id": meeting_id} if meeting_id else None
+    try:
+        filters = {"meeting_id": meeting_id} if meeting_id else None
 
-    if filters:
-        matching_count = len(target_collection.get(where=filters, include=[])["ids"])
-    else:
-        matching_count = target_collection.count()
+        if filters:
+            matching_count = len(
+                target_collection.get(
+                    where=filters,
+                    include=[],
+                )["ids"]
+            )
+        else:
+            matching_count = target_collection.count()
 
-    if matching_count == 0:
-        return []
+        if matching_count == 0:
+            logger.info("No matching meeting chunks found")
+            return []
 
-    results = target_collection.query(
-        query_embeddings=[model.encode(query).tolist()],
-        n_results=min(top_k, matching_count),
-        where=filters,
-        include=["documents", "metadatas", "distances"],
-    )
-
-    documents = results["documents"][0] or []
-    metadatas = results["metadatas"][0] or []
-    distances = results["distances"][0] or []
-
-    retrieved_chunks = []
-
-    for i, document in enumerate(documents):
-        metadata = metadatas[i] or {}
-        distance = distances[i]
-
-        # Reject chunks that exceed the configured distance.
-        if max_distance is not None and distance > max_distance:
-            continue
-
-        retrieved_chunks.append(
-            {
-                "text": document,
-                "title": metadata.get("title", "Untitled Meeting"),
-                "section": metadata.get("section", "unknown"),
-                "distance": distance,
-            }
+        results = target_collection.query(
+            query_embeddings=[model.encode(query).tolist()],
+            n_results=min(top_k, matching_count),
+            where=filters,
+            include=["documents", "metadatas", "distances"],
         )
 
-    return retrieved_chunks
+        documents = results["documents"][0] or []
+        metadatas = results["metadatas"][0] or []
+        distances = results["distances"][0] or []
 
+        retrieved_chunks = []
 
-def search_meeting_chunks(
-    target_collection,
-    model,
-    query: str,
-    top_k: int = 3,
-    meeting_id: str | None = None,
-    max_distance: float | None = None,
-) -> list[dict]:
-    """Search meeting chunks and optionally filter by cosine distance."""
+        for i, document in enumerate(documents):
+            metadata = metadatas[i] or {}
+            distance = distances[i]
 
-    if not query.strip() or top_k <= 0:
-        return []
+            if max_distance is not None and distance > max_distance:
+                continue
 
-    filters = {"meeting_id": meeting_id} if meeting_id else None
+            retrieved_chunks.append(
+                {
+                    "text": document,
+                    "title": metadata.get("title", "Untitled Meeting"),
+                    "section": metadata.get("section", "unknown"),
+                    "distance": distance,
+                }
+            )
 
-    if filters:
-        matching_count = len(target_collection.get(where=filters, include=[])["ids"])
-    else:
-        matching_count = target_collection.count()
-
-    if matching_count == 0:
-        return []
-
-    results = target_collection.query(
-        query_embeddings=[model.encode(query).tolist()],
-        n_results=min(top_k, matching_count),
-        where=filters,
-        include=["documents", "metadatas", "distances"],
-    )
-
-    documents = results["documents"][0] or []
-    metadatas = results["metadatas"][0] or []
-    distances = results["distances"][0] or []
-
-    retrieved_chunks = []
-
-    for i, document in enumerate(documents):
-        metadata = metadatas[i] or {}
-        distance = distances[i]
-
-        if max_distance is not None and distance > max_distance:
-            continue
-
-        retrieved_chunks.append(
-            {
-                "text": document,
-                "title": metadata.get("title", "Untitled Meeting"),
-                "section": metadata.get("section", "unknown"),
-                "distance": distance,
-            }
+        logger.info(
+            "Chunk search completed | Meeting ID: %s | Retrieved: %d",
+            meeting_id or "all",
+            len(retrieved_chunks),
         )
 
-    return retrieved_chunks
+        return retrieved_chunks
+
+    except Exception:
+        logger.exception("Meeting chunk search failed")
+        raise
 
 
 def save_meeting_to_collection(
@@ -226,31 +219,45 @@ def save_meeting_to_collection(
     report: dict,
 ) -> None:
     """Save a meeting report to the supplied ChromaDB collection."""
-    title = report.get("title", "").strip() or "Untitled Meeting"
 
-    action_items_text = format_action_items(report.get("action_items", []))
+    try:
+        title = report.get("title", "").strip() or "Untitled Meeting"
 
-    text = (
-        f"Title: {title}\n"
-        f"Summary: {report.get('summary', '')}\n"
-        f"Decisions: {'; '.join(report.get('key_decisions', []))}\n"
-        f"Action items:\n{action_items_text}\n"
-        f"Open questions: {'; '.join(report.get('open_questions', []))}"
-    )
+        action_items_text = format_action_items(report.get("action_items", []))
 
-    embedding = model.encode(text).tolist()
+        text = (
+            f"Title: {title}\n"
+            f"Summary: {report.get('summary', '')}\n"
+            f"Decisions: {'; '.join(report.get('key_decisions', []))}\n"
+            f"Action items:\n{action_items_text}\n"
+            f"Open questions: {'; '.join(report.get('open_questions', []))}"
+        )
 
-    target_collection.upsert(
-        ids=[meeting_id],
-        documents=[text],
-        embeddings=[embedding],
-        metadatas=[
-            {
-                "title": title,
-                "meeting_id": meeting_id,
-            }
-        ],
-    )
+        embedding = model.encode(text).tolist()
+
+        target_collection.upsert(
+            ids=[meeting_id],
+            documents=[text],
+            embeddings=[embedding],
+            metadatas=[
+                {
+                    "title": title,
+                    "meeting_id": meeting_id,
+                }
+            ],
+        )
+
+        logger.info(
+            "Meeting report stored in ChromaDB | Meeting ID: %s",
+            meeting_id,
+        )
+
+    except Exception:
+        logger.exception(
+            "Failed to store meeting report | Meeting ID: %s",
+            meeting_id,
+        )
+        raise
 
 
 def save_meeting(meeting_id: str, report: dict) -> None:
@@ -265,27 +272,38 @@ def save_meeting(meeting_id: str, report: dict) -> None:
 
 def list_meetings() -> list[dict]:
     """Return saved meetings with their titles and IDs."""
-    stored = collection.get(include=["metadatas"])
 
-    meetings = []
+    try:
+        stored = collection.get(include=["metadatas"])
 
-    for meeting_id, metadata in zip(
-        stored["ids"],
-        stored["metadatas"],
-    ):
-        if not metadata:
-            continue
+        meetings = []
 
-        title = metadata.get("title", "").strip() or "Untitled Meeting"
+        for meeting_id, metadata in zip(
+            stored["ids"],
+            stored["metadatas"],
+        ):
+            if not metadata:
+                continue
 
-        meetings.append(
-            {
-                "id": meeting_id,
-                "title": title,
-            }
+            title = metadata.get("title", "").strip() or "Untitled Meeting"
+
+            meetings.append(
+                {
+                    "id": meeting_id,
+                    "title": title,
+                }
+            )
+
+        logger.info(
+            "Meeting history retrieved | Count: %d",
+            len(meetings),
         )
 
-    return meetings
+        return meetings
+
+    except Exception:
+        logger.exception("Failed to retrieve meeting history")
+        raise
 
 
 def search_meetings_in_collection(
@@ -296,46 +314,63 @@ def search_meetings_in_collection(
     meeting_id: str | None = None,
 ) -> list[dict]:
     """Search a collection, optionally restricting results to one meeting."""
+
     if not query.strip() or top_k <= 0:
+        logger.warning("Invalid meeting search request")
         return []
 
-    filters = {"meeting_id": meeting_id} if meeting_id else None
+    try:
+        filters = {"meeting_id": meeting_id} if meeting_id else None
 
-    # ChromaDB count() doesn't support a metadata filter in this version.
-    # Apply the filter to get() and count only the matching records.
-    if filters:
-        matching_count = len(target_collection.get(where=filters, include=[])["ids"])
-    else:
-        matching_count = target_collection.count()
+        if filters:
+            matching_count = len(
+                target_collection.get(
+                    where=filters,
+                    include=[],
+                )["ids"]
+            )
+        else:
+            matching_count = target_collection.count()
 
-    if matching_count == 0:
-        return []
+        if matching_count == 0:
+            logger.info("No matching meetings found")
+            return []
 
-    results = target_collection.query(
-        query_embeddings=[model.encode(query).tolist()],
-        n_results=min(top_k, matching_count),
-        where=filters,
-        include=["documents", "metadatas", "distances"],
-    )
-
-    documents = results["documents"][0] or []
-    metadatas = results["metadatas"][0] or []
-    distances = results["distances"][0] or []
-
-    meetings = []
-
-    for i, document in enumerate(documents):
-        metadata = metadatas[i] or {}
-
-        meetings.append(
-            {
-                "text": document,
-                "title": metadata.get("title", "Untitled Meeting"),
-                "distance": distances[i],
-            }
+        results = target_collection.query(
+            query_embeddings=[model.encode(query).tolist()],
+            n_results=min(top_k, matching_count),
+            where=filters,
+            include=["documents", "metadatas", "distances"],
         )
 
-    return meetings
+        documents = results["documents"][0] or []
+        metadatas = results["metadatas"][0] or []
+        distances = results["distances"][0] or []
+
+        meetings = []
+
+        for i, document in enumerate(documents):
+            metadata = metadatas[i] or {}
+
+            meetings.append(
+                {
+                    "text": document,
+                    "title": metadata.get("title", "Untitled Meeting"),
+                    "distance": distances[i],
+                }
+            )
+
+        logger.info(
+            "Meeting search completed | Meeting ID: %s | Results: %d",
+            meeting_id or "all",
+            len(meetings),
+        )
+
+        return meetings
+
+    except Exception:
+        logger.exception("Meeting search failed")
+        raise
 
 
 def search_meetings(
